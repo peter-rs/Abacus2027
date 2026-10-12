@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Backend tests (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      PASSWORD_TOKEN_SALT: ci-test-salt
+      PASSWORD_TOKEN_MAX_AGE_SECONDS: "3600"
+      FRONTEND_BASE_URL: http://localhost:3000
+      DB_USER: user
+      DB_PASSWORD: password
+      DB_HOST: 127.0.0.1
+      DB_NAME: autota
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Create /tabot-files (create_app() calls os.makedirs on an absolute root path)
+        run: sudo mkdir -p /tabot-files && sudo chown "$USER" /tabot-files
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Sanity-check native/heavy imports
+        run: python -c "import pam, sklearn, lxml; print('ok')"
+
+      - name: Run pytest
+        run: pytest
+
+  frontend-build:
+    name: Frontend build (Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      VITE_API_URL: http://localhost:5000/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+  docker-build:
+    name: Docker build (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: backend-dev,   context: backend,  file: backend/Dockerfile }
+          - { name: backend-prod,  context: backend,  file: backend/Dockerfile.prod }
+          - { name: frontend-dev,  context: frontend, file: frontend/Dockerfile }
+          - { name: frontend-prod, context: frontend, file: frontend/Dockerfile.prod }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

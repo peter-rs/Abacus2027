@@ -9,3 +9,6 @@ tabot-files/project-files
 frontend/package-lock.json
 
 frontend/node_modules
+.pytest_cache/
+
+frontend/dist
