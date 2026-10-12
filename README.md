@@ -54,6 +54,20 @@ Download DBDeaver: https://dbeaver.io/download/
 
 In DBBeaver, connect to: ```localhost:3306```
 
+## Continuous Integration
+
+Every pull request and every push to `main` runs `.github/workflows/ci.yml` on GitHub Actions:
+
+- **Backend tests** – installs `backend/requirements.txt` on Python 3.10 and runs `pytest` (tests live in `backend/tests/`).
+- **Frontend build** – `npm install` + `npm run build` on Node 24.
+- **Docker build** – builds all four Dockerfiles (`backend/Dockerfile`, `backend/Dockerfile.prod`, `frontend/Dockerfile`, `frontend/Dockerfile.prod`) without pushing.
+
+Run the backend tests locally (Python 3.10+):
+
+```cd backend && pip install -r requirements.txt && pytest```
+
+The tests set dummy values for the required environment variables themselves, so no `.env.backend` is needed.
+
 ## Pushing Docker Image to Production:
 
 Get a github personal access token (PAT)
