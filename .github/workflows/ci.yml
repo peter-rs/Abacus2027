@@ -20,6 +20,7 @@ jobs:
       run:
         working-directory: backend
     env:
+      JWT_SECRET_KEY: ci-test-jwt-secret
       PASSWORD_TOKEN_SALT: ci-test-salt
       PASSWORD_TOKEN_MAX_AGE_SECONDS: "3600"
       FRONTEND_BASE_URL: http://localhost:3000

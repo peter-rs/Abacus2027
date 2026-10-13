@@ -36,7 +36,7 @@ Add the following line to that file: ```VITE_API_URL=http://localhost:5000/api``
 
 (Or different URL for Production)
 
-Go back from the frontend folder into the backend folder. Create ```.env.backend``` Enter environment variables.
+Go back from the frontend folder into the backend folder. Copy ```.env.backend.example``` to ```.env.backend``` and fill in the values (the file explains each variable and how to generate secrets).
 
 ## Run Abacus
 

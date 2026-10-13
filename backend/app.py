@@ -21,8 +21,14 @@ from src.services import timeout_service
 import os
 from src.jobs.scoreboard_job import add_scoreboard_job
 from src.extensions import cache, scheduler
+from src.config import database_uri, env_list, require_env
 
 def create_app():
+    jwt_secret_key = require_env("JWT_SECRET_KEY")
+    sqlalchemy_uri = database_uri()
+    frontend_base_url = require_env("FRONTEND_BASE_URL").rstrip("/")
+    cors_origins = env_list("CORS_ORIGINS", default=[frontend_base_url])
+
     app = Flask(__name__)
     container = Container()
     app.container = container
@@ -40,20 +46,17 @@ def create_app():
     CORS(
         app,
         supports_credentials=True,
-        origins=["http://localhost:3000"],
+        origins=cors_origins,
     )
         
     # App configuration
 
-    app.config["JWT_SECRET_KEY"] = "ob1L04WeQ1U0H5Kiybk9rMoQigVhoGJCKBxC6KxF85G89vAK3L903I073JXQ"
+    app.config["JWT_SECRET_KEY"] = jwt_secret_key
     app.config["MAX_FAILED_LOGINS"] = 5
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1000 * 1000
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["SQLALCHEMY_DATABASE_URI"] = (
-        f"mysql+pymysql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
-        f"@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
-    )
+    app.config["SQLALCHEMY_DATABASE_URI"] = sqlalchemy_uri
     
     # Blueprint registration
     app.register_blueprint(auth_api, url_prefix='/api/auth')

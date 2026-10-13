@@ -19,13 +19,15 @@ from src.jwt_manager import jwt
 from src import teams, schools, auth, projects, submission, upload
 from src.services import timeout_service
 from src import teams, schools, auth, projects, submission, upload, timeout_service, gold_division, eagle_home
-from sentry_sdk.integrations.flask import FlaskIntegration
-import sentry_sdk
 import os
 from src.jobs.scoreboard_job import add_scoreboard_job
 from src.extensions import cache, scheduler
+from src.config import database_uri, require_env
 
 def create_app():
+    jwt_secret_key = require_env("JWT_SECRET_KEY")
+    sqlalchemy_uri = database_uri()
+
     app = Flask(__name__)
     container = Container()
     app.container = container
@@ -41,12 +43,12 @@ def create_app():
     })
 
     CORS(app)
-    app.config["JWT_SECRET_KEY"] = "5WZBHN8yWHH9V7IjIg8aeDwQSOMpYqVyEJXMaXhSuHpsutYyKDrx4BvVR0CEf69"
+    app.config["JWT_SECRET_KEY"] = jwt_secret_key
     app.config["MAX_FAILED_LOGINS"] = 5
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1000 * 1000
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["SQLALCHEMY_DATABASE_URI"] = "mysql+pymysql://api-user:EzZh-SoVQ3jFKt6@localhost/autota"
+    app.config["SQLALCHEMY_DATABASE_URI"] = sqlalchemy_uri
     app.register_blueprint(auth_api, url_prefix='/api/auth')
     app.register_blueprint(upload_api, url_prefix='/api/upload')
     app.register_blueprint(submission_api, url_prefix='/api/submissions')
@@ -56,16 +58,6 @@ def create_app():
     app.register_blueprint(gold_division_api, url_prefix='/api/gold-division')
     app.register_blueprint(eagle_home.eagle_api, url_prefix='/api/eagle')
     app.register_blueprint(error_api,url_prefix='/api/error')
-  
-    sentry_sdk.init(
-        "https://c4f15810b0d34cd589cbc1c86bb5e0fd@o906488.ingest.sentry.io/5843824",
-        integrations=[FlaskIntegration()],
-
-        # Set traces_sample_rate to 1.0 to capture 100%
-        # of transactions for performance monitoring.
-        # We recommend adjusting this value in production.
-        traces_sample_rate=1.0
-    )
 
     jwt.init_app(app)
     db.init_app(app)
