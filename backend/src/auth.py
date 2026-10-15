@@ -1,5 +1,4 @@
 import hashlib
-import os
 import re
 from datetime import datetime
 from http import HTTPStatus
@@ -13,6 +12,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from container import Container
 from src.api_utils import get_value_or_empty
+from src.config import env_bool, require_env, require_int_env
 from src.email import send_password_link_email
 from src.jwt_manager import jwt
 from src.repositories.models import AdminUsers, StudentUsers
@@ -20,19 +20,6 @@ from src.repositories.team_repository import TeamRepository
 from src.repositories.user_repository import UserRepository
 
 auth_api = Blueprint("auth_api", __name__)
-
-def require_env(name: str) -> str:
-    value = (os.environ.get(name) or "").strip()
-    if not value:
-        raise RuntimeError(f"{name} is not set.")
-    return value
-
-def require_int_env(name: str) -> int:
-    value = require_env(name)
-    try:
-        return int(value)
-    except ValueError as e:
-        raise RuntimeError(f"{name} must be an integer.") from e
 
 PASSWORD_TOKEN_SALT = require_env("PASSWORD_TOKEN_SALT")
 PASSWORD_TOKEN_MAX_AGE_SECONDS = require_int_env("PASSWORD_TOKEN_MAX_AGE_SECONDS")
@@ -59,7 +46,10 @@ def is_valid_password(password: str) -> bool:
     return True
 
 # Local server must be restarted if DEBUGGER_MODE is changed.
-DEBUGGER_MODE = (os.environ.get("DEBUGGER_MODE") or "").strip().lower() == "true"
+DEBUGGER_MODE = env_bool("DEBUGGER_MODE", False)
+
+# Password assigned to accounts created while DEBUGGER_MODE is on.
+DEBUG_DEFAULT_PASSWORD = require_env("DEBUG_DEFAULT_PASSWORD") if DEBUGGER_MODE else None
 
 def password_sig(password_hash: str) -> str:
     return hashlib.sha256((password_hash or "").encode("utf-8")).hexdigest()
@@ -279,8 +269,7 @@ def register_user(user_repo: UserRepository = Provide[Container.user_repo]):
         school_obj = existing if existing else user_repo.create_school(school)
 
     if DEBUGGER_MODE:
-        default_password = "admin123"
-        password_hash = generate_password_hash(default_password)
+        password_hash = generate_password_hash(DEBUG_DEFAULT_PASSWORD)
     else:
         password_hash = None
 
@@ -316,10 +305,7 @@ def register_user(user_repo: UserRepository = Provide[Container.user_repo]):
         )
 
     return make_response(
-        {
-            "message": "Account successfully created in debugging mode.",
-            "Account Password": "admin123",
-        },
+        {"message": "Account successfully created in debugging mode."},
         HTTPStatus.OK,
     )
 
@@ -400,8 +386,7 @@ def create_student_user(
         )
 
     if DEBUGGER_MODE:
-        default_password = "admin123"
-        password_hash = generate_password_hash(default_password)
+        password_hash = generate_password_hash(DEBUG_DEFAULT_PASSWORD)
     else:
         password_hash = generate_password_hash(password) if password else None
 

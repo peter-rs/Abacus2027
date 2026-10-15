@@ -1,33 +1,15 @@
-import os
 import smtplib
 import ssl
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
 from typing import Literal, Optional
 
+from src.config import env_bool, optional_env, optional_int_env, require_env
+
 AccountType = Literal["admin", "student"]
 
-def require_env(name: str) -> str:
-    value = (os.environ.get(name) or "").strip()
-    if not value:
-        raise RuntimeError(f"{name} is not set.")
-    return value
-
-def env_bool(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    return raw.strip().lower() in ("1", "true", "yes", "y", "on")
-
 def get_smtp_port() -> int:
-    raw = (os.environ.get("SMTP_PORT") or "").strip()
-    if not raw:
-        return 587
-
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise RuntimeError("SMTP_PORT must be an integer.") from exc
+    return optional_int_env("SMTP_PORT", 587)
 
 def normalize_from_address(raw_from: str) -> str:
     name, addr = parseaddr(raw_from)
@@ -72,7 +54,7 @@ def send_email(
     smtp_user = require_env("SMTP_USERNAME")
     smtp_pass = require_env("SMTP_PASSWORD").replace(" ", "")
 
-    smtp_from_raw = (from_email or os.environ.get("SMTP_FROM") or smtp_user).strip()
+    smtp_from_raw = (from_email or optional_env("SMTP_FROM") or smtp_user).strip()
     smtp_from = normalize_from_address(smtp_from_raw)
 
     use_tls = env_bool("SMTP_USE_TLS", True)
