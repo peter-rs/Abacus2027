@@ -1,7 +1,18 @@
 from datetime import datetime
+from enum import Enum, IntEnum
 
-TEACHER_ROLE = 0
-ADMIN_ROLE = 1
+class Role(IntEnum):
+    TEACHER = 0
+    SYSTEM_ADMIN = 1        
+    COMPETITION_ADMIN = 2
+
+class Division(Enum):
+    BLUE = "Blue"
+    GOLD = "Gold"
+    EAGLE = "Eagle"
+
+TEACHER_ROLE = Role.TEACHER.value
+ADMIN_ROLE = Role.SYSTEM_ADMIN.value
 EMPTY = -1
 
 # Team Max
