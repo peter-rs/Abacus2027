@@ -3,17 +3,18 @@ services:
     image: mysql:9.3
     restart: always
     environment:
-      MYSQL_DATABASE: "autota"
-      MYSQL_USER: "user"
-      MYSQL_PASSWORD: "password"
-      MYSQL_ROOT_PASSWORD: "password"
+      MYSQL_DATABASE: ${DB_NAME:?}
+      MYSQL_USER: ${DB_USER:?}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?}
     ports:
       - "127.0.0.1:3306:3306"
     volumes:
       - ./database:/var/lib/mysql
       - ./init-db:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uuser", "-ppassword"]
+      # container shell expands MYSQL_USER / MYSQL_PASSWORD from its environment
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u\"$$MYSQL_USER\" -p\"$$MYSQL_PASSWORD\""]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -28,10 +29,10 @@ services:
     env_file:
       - ./backend/.env.backend
     environment:
-      DB_USER: "user"
-      DB_PASSWORD: "password"
+      DB_USER: ${DB_USER:?}
+      DB_PASSWORD: ${DB_PASSWORD:?}
       DB_HOST: "db"
-      DB_NAME: "autota"
+      DB_NAME: ${DB_NAME:?}
       DB_PORT: "3306"
       FLASK_DEBUG: "False"
       TABOT_DIR: "/tabot-files"
