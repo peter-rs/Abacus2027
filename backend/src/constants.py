@@ -11,6 +11,12 @@ class Division(Enum):
     GOLD = "Gold"
     EAGLE = "Eagle"
 
+#Issues from differnece in storage
+def normalize_division(value): 
+    """Teams stores 'Blue', Projects stores 'blue'. Compare through this."""
+    v = str(value or "").strip().lower()
+    return next((d for d in Division if d.value.lower() == v), None)
+
 TEACHER_ROLE = Role.TEACHER.value
 ADMIN_ROLE = Role.SYSTEM_ADMIN.value
 EMPTY = -1
