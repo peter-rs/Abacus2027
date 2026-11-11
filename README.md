@@ -38,6 +38,8 @@ Add the following line to that file: ```VITE_API_URL=http://localhost:5000/api``
 
 Go back from the frontend folder into the backend folder. Copy ```.env.backend.example``` to ```.env.backend``` and fill in the values (the file explains each variable and how to generate secrets).
 
+Go up to the repository root. Copy ```.env.example``` to ```.env``` and choose a database name, user, password and root password. Docker Compose reads this file to configure MySQL and to tell the backend how to connect; ```docker compose up``` refuses to start if any value is missing.
+
 ## Run Abacus
 
 Go up a directory (from the frontend folder) and run:
