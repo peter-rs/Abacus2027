@@ -8,15 +8,29 @@ CREATE TABLE `AdminUsers` (
   `Firstname` varchar(45) NOT NULL,
   `Lastname` varchar(45) NOT NULL,
   `Email` varchar(256) NOT NULL,
-  `SchoolId` int NOT NULL,
+  `SchoolId` int DEFAULT NULL COMMENT 'NULL for system and competition admins',
   `PasswordHash` varchar(255) DEFAULT NULL,
   `IsLocked` tinyint(1) NOT NULL DEFAULT 0,
-  `Role` tinyint(1) NOT NULL DEFAULT 0,
+  `Role` tinyint(1) NOT NULL DEFAULT 0 COMMENT '0 teacher, 1 system admin, 2 competition admin',
   `Question1` varchar(255) DEFAULT NULL,
   `Question2` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`Id`),
   UNIQUE KEY `adminusers_email_unique` (`Email`),
-  KEY `fk_adminusers_school_idx` (`SchoolId`)
+  KEY `fk_adminusers_school_idx` (`SchoolId`),
+  CONSTRAINT `chk_adminusers_role` CHECK (`Role` IN (0, 1, 2))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ============================================
+-- Table structure for table `CompetitionAdminDivisions`
+-- Which divisions each competition admin (AdminUsers.Role = 2) covers
+-- ============================================
+CREATE TABLE `CompetitionAdminDivisions` (
+  `Id` int NOT NULL AUTO_INCREMENT,
+  `AdminId` int NOT NULL,
+  `Division` varchar(5) COLLATE utf8mb4_bin NOT NULL COMMENT 'Blue, Gold, or Eagle. Match Teams.Division',
+  PRIMARY KEY (`Id`),
+  UNIQUE KEY `uq_admin_division` (`AdminId`, `Division`),
+  CONSTRAINT `chk_cad_division` CHECK (`Division` IN ('Blue', 'Gold', 'Eagle'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
@@ -257,6 +271,11 @@ CREATE TABLE `ScoreboardSnapshots` (
 ALTER TABLE `AdminUsers`
   ADD CONSTRAINT `fk_adminusers_school`
   FOREIGN KEY (`SchoolId`) REFERENCES `Schools` (`Id`);
+
+ALTER TABLE `CompetitionAdminDivisions`
+  ADD CONSTRAINT `fk_cad_admin`
+  FOREIGN KEY (`AdminId`) REFERENCES `AdminUsers` (`Id`)
+  ON DELETE CASCADE;
 
 ALTER TABLE `StudentUsers`
   ADD CONSTRAINT `fk_studentusers_teacher`

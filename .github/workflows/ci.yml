@@ -19,7 +19,22 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      mysql:
+        image: mysql:9.3          # same version as docker-compose
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root-password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     env:
+      TEST_MYSQL_HOST: 127.0.0.1
+      TEST_MYSQL_USER: root
+      TEST_MYSQL_PASSWORD: ci-root-password
       JWT_SECRET_KEY: ci-test-jwt-secret
       PASSWORD_TOKEN_SALT: ci-test-salt
       PASSWORD_TOKEN_MAX_AGE_SECONDS: "3600"
