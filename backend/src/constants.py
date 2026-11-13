@@ -1,7 +1,24 @@
 from datetime import datetime
+from enum import Enum, IntEnum
 
-TEACHER_ROLE = 0
-ADMIN_ROLE = 1
+class StaffRole(IntEnum):
+    TEACHER = 0
+    SYSTEM_ADMIN = 1        
+    COMPETITION_ADMIN = 2
+
+class Division(Enum):
+    BLUE = "Blue"
+    GOLD = "Gold"
+    EAGLE = "Eagle"
+
+#Issues from differnece in storage
+def normalize_division(value): 
+    """Teams stores 'Blue', Projects stores 'blue'. Compare through this."""
+    v = str(value or "").strip().lower()
+    return next((d for d in Division if d.value.lower() == v), None)
+
+TEACHER_ROLE = StaffRole.TEACHER.value
+ADMIN_ROLE = StaffRole.SYSTEM_ADMIN.value
 EMPTY = -1
 
 # Team Max
