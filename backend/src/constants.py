@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum, IntEnum
 
-class Role(IntEnum):
+class StaffRole(IntEnum):
     TEACHER = 0
     SYSTEM_ADMIN = 1        
     COMPETITION_ADMIN = 2
@@ -17,8 +17,8 @@ def normalize_division(value):
     v = str(value or "").strip().lower()
     return next((d for d in Division if d.value.lower() == v), None)
 
-TEACHER_ROLE = Role.TEACHER.value
-ADMIN_ROLE = Role.SYSTEM_ADMIN.value
+TEACHER_ROLE = StaffRole.TEACHER.value
+ADMIN_ROLE = StaffRole.SYSTEM_ADMIN.value
 EMPTY = -1
 
 # Team Max

@@ -2,355 +2,164 @@ import os
 from http import HTTPStatus
 
 from dependency_injector.wiring import Provide, inject
-from flask import Blueprint, current_app, jsonify, make_response, request, send_file
+from flask import Blueprint, jsonify, make_response, request, send_file
 from flask_jwt_extended import current_user, jwt_required
 from sqlalchemy import asc, desc
 
 from container import Container
-from src.constants import (
-    ADMIN_ROLE,
-    TEACHER_ROLE,
-    can_student_access_competition_materials,
-)
+from src.constants import Division, can_student_access_competition_materials
+from src.permissions import Actor, actor_of, can_view_eagle_chat, school_id_of
 from src.repositories.database import db
-from src.repositories.models import AdminUsers, EagleTeamMessages, StudentUsers, Teams
+from src.repositories.models import EagleTeamMessages, Teams
 from src.repositories.project_repository import ProjectRepository
 
 eagle_api = Blueprint("eagle_api", __name__)
+NOT_EAGLE = "This page is only for Eagle Division teams."
+MATERIALS_CLOSED = "Problem materials are only available during the competition and after submissions unlock."
+INSTRUCTIONS_PDF = "/tabot-files/eagledivision/Eagle-Division-2026.pdf" #change when files updated
 
 
-def _is_global_admin() -> bool:
-    return (
-        isinstance(current_user, AdminUsers)
-        and int(getattr(current_user, "Role", 0) or 0) == ADMIN_ROLE
-    )
+def _deny(message="Unauthorized", status=HTTPStatus.FORBIDDEN):
+    return make_response({"message": message}, status)
 
 
-def _student_eagle_team() -> tuple[Teams | None, object | None]:
-    if not isinstance(current_user, StudentUsers):
-        return None, make_response({"message": "Unauthorized"}, HTTPStatus.FORBIDDEN)
-    team = Teams.query.filter_by(Id=int(current_user.TeamId)).first()
-    if not team or (team.Division or "").strip() != "Eagle":
-        return None, make_response(
-            {"message": "This page is only for Eagle Division teams."},
-            HTTPStatus.FORBIDDEN,
-        )
-    return team, None
+def _eagle_team(team_id):
+    return Teams.query.filter_by(Id=team_id, Division=Division.EAGLE.value).first()
 
 
-def _staff_role() -> int | None:
-    if not isinstance(current_user, AdminUsers):
+def _role(message):
+    return "student" if (message.SenderType or "").strip().lower() == "student" else "admin"
+
+
+def _when(moment):
+    return moment.isoformat(sep=" ", timespec="seconds") if moment else ""
+
+
+def _materials_error():
+    """None if the caller may see the Eagle problem and instructions, else the error response."""
+    actor = actor_of()
+    if actor == Actor.SYSTEM_ADMIN:
         return None
-    return int(getattr(current_user, "Role", TEACHER_ROLE) or TEACHER_ROLE)
+    if actor != Actor.STUDENT:
+        return _deny()
+    if not _eagle_team(current_user.TeamId):
+        return _deny(NOT_EAGLE)
+    return None if can_student_access_competition_materials() else _deny(MATERIALS_CLOSED)
 
 
-def _visible_eagle_teams_query():
-    if not isinstance(current_user, AdminUsers):
+def _visible_teams():
+    """Eagle teams the caller may see (all for a system admin, own school for a teacher), else None."""
+    actor = actor_of()
+    if actor not in (Actor.SYSTEM_ADMIN, Actor.TEACHER):
         return None
-
-    teams_query = Teams.query.filter(Teams.Division == "Eagle")
-    if _staff_role() == TEACHER_ROLE:
-        teams_query = teams_query.filter(
-            Teams.SchoolId == int(getattr(current_user, "SchoolId", 0) or 0)
-        )
-
-    return teams_query
-
-
-def _message_sender_role(message) -> str | None:
-    if message is None:
-        return None
-
-    sender_type = (getattr(message, "SenderType", "") or "").strip().lower()
-    if sender_type == "student":
-        return "student"
-
-    admin_id = int(getattr(message, "AdminId", 0) or 0)
-    admin = AdminUsers.query.filter_by(Id=admin_id).first() if admin_id > 0 else None
-    admin_role = int(getattr(admin, "Role", TEACHER_ROLE) or TEACHER_ROLE) if admin else ADMIN_ROLE
-    return "admin" if admin_role == ADMIN_ROLE else "teacher"
-
-
-def _conversation_stage(message_count: int, last_sender_role: str | None) -> str:
-    if message_count <= 0:
-        return "no_messages"
-
-    if last_sender_role == "student":
-        return "needs_admin_reply"
-
-    return "waiting_for_requester"
-
-
-def _eagle_instructions_path() -> tuple[str | None, str]:
-    """Resolve PDF under tabot-files/eagledivision (dev: repo sibling; prod: /tabot-files mount)."""
-    download_name = "Eagle-Division-2026.pdf"
-    candidates = ("Eagle-Division-2026.pdf", "Eagle-Division-2026.pdf.pdf")
-    bases = [
-        os.path.abspath(
-            os.path.join(current_app.root_path, "..", "tabot-files", "eagledivision")
-        ),
-        "/tabot-files/eagledivision",
-    ]
-    for base in bases:
-        for name in candidates:
-            full = os.path.join(base, name)
-            if os.path.isfile(full):
-                return full, download_name
-    return None, download_name
+    teams = Teams.query.filter(Teams.Division == Division.EAGLE.value)
+    if actor == Actor.TEACHER:
+        teams = teams.filter(Teams.SchoolId == school_id_of())
+    return teams.order_by(asc(Teams.SchoolId), asc(Teams.TeamNumber)).all()
 
 
 @eagle_api.route("/instructions", methods=["GET"])
 @jwt_required()
 def download_eagle_instructions():
-    if isinstance(current_user, StudentUsers):
-        _, err = _student_eagle_team()
-        if err:
-            return err
-        if not can_student_access_competition_materials():
-            return make_response(
-                {
-                    "message": "Problem materials are only available during the competition and after submissions unlock."
-                },
-                HTTPStatus.FORBIDDEN,
-            )
-    elif not _is_global_admin():
-        return make_response({"message": "Unauthorized"}, HTTPStatus.FORBIDDEN)
-
-    path, download_name = _eagle_instructions_path()
-    if not path:
-        return make_response(
-            {"message": "Eagle instructions PDF is not available on the server."},
-            HTTPStatus.NOT_FOUND,
-        )
-
-    return send_file(
-        path,
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=download_name,
-    )
-
-
-@eagle_api.route("/teams", methods=["GET"])
-@jwt_required()
-def list_eagle_teams():
-    teams_query = _visible_eagle_teams_query()
-    if teams_query is None:
-        return make_response({"message": "Admin access required"}, HTTPStatus.FORBIDDEN)
-
-    teams = teams_query.order_by(asc(Teams.SchoolId), asc(Teams.TeamNumber)).all()
-    return jsonify(
-        [
-            {
-                "id": t.Id,
-                "name": t.Name,
-                "teamNumber": t.TeamNumber,
-                "schoolId": t.SchoolId,
-            }
-            for t in teams
-        ]
-    )
-
-
-@eagle_api.route("/conversations", methods=["GET"])
-@jwt_required()
-def list_eagle_conversations():
-    teams_query = _visible_eagle_teams_query()
-    if teams_query is None:
-        return make_response({"message": "Unauthorized"}, HTTPStatus.FORBIDDEN)
-
-    teams = teams_query.order_by(asc(Teams.SchoolId), asc(Teams.TeamNumber)).all()
-    payload = []
-
-    for team in teams:
-        latest_message = (
-            EagleTeamMessages.query
-            .filter(EagleTeamMessages.TeamId == int(team.Id))
-            .order_by(desc(EagleTeamMessages.CreatedAt), desc(EagleTeamMessages.Id))
-            .first()
-        )
-        message_count = (
-            EagleTeamMessages.query
-            .filter(EagleTeamMessages.TeamId == int(team.Id))
-            .count()
-        )
-
-        last_sender_role = _message_sender_role(latest_message)
-        payload.append(
-            {
-                "teamId": int(team.Id),
-                "teamName": str(getattr(team, "Name", "") or f"Team {team.Id}").strip(),
-                "teamNumber": int(getattr(team, "TeamNumber", 0) or 0),
-                "schoolId": int(getattr(team, "SchoolId", 0) or 0),
-                "lastMessagePreview": (
-                    str(getattr(latest_message, "Body", "") or "").strip()[:140]
-                    if latest_message else None
-                ),
-                "lastMessageAt": (
-                    latest_message.CreatedAt.isoformat(sep=" ", timespec="seconds")
-                    if latest_message and getattr(latest_message, "CreatedAt", None)
-                    else None
-                ),
-                "lastSenderRole": last_sender_role,
-                "conversationStage": _conversation_stage(message_count, last_sender_role),
-                "messageCount": message_count,
-            }
-        )
-
-    return jsonify(payload)
-
-
-@eagle_api.route("/messages", methods=["GET"])
-@jwt_required()
-def get_messages():
-    team_id: int | None = None
-    if isinstance(current_user, StudentUsers):
-        team, err = _student_eagle_team()
-        if err:
-            return err
-        team_id = int(team.Id)
-    elif isinstance(current_user, AdminUsers):
-        team_id = request.args.get("team_id", type=int)
-        if not team_id:
-            return make_response({"message": "team_id is required"}, HTTPStatus.BAD_REQUEST)
-        team = Teams.query.filter_by(Id=team_id, Division="Eagle").first()
-        if not team:
-            return make_response({"message": "Eagle team not found"}, HTTPStatus.NOT_FOUND)
-
-        role = _staff_role()
-        if role == TEACHER_ROLE and int(getattr(team, "SchoolId", 0) or 0) != int(getattr(current_user, "SchoolId", 0) or 0):
-            return make_response({"message": "Unauthorized"}, HTTPStatus.FORBIDDEN)
-    else:
-        return make_response({"message": "Unauthorized"}, HTTPStatus.FORBIDDEN)
-
-    rows = (
-        EagleTeamMessages.query.filter_by(TeamId=team_id)
-        .order_by(asc(EagleTeamMessages.CreatedAt), asc(EagleTeamMessages.Id))
-        .all()
-    )
-    admin_ids = {int(m.AdminId) for m in rows if m.AdminId is not None}
-    role_by_admin: dict[int, int] = {}
-    if admin_ids:
-        for u in AdminUsers.query.filter(AdminUsers.Id.in_(admin_ids)).all():
-            role_by_admin[int(u.Id)] = int(getattr(u, "Role", TEACHER_ROLE) or TEACHER_ROLE)
-
-    out = []
-    for m in rows:
-        st = (m.SenderType or "").lower()
-        if st == "student":
-            sender = "student"
-            sender_role = "student"
-        else:
-            sender = "admin"
-            rid = int(m.AdminId) if m.AdminId is not None else None
-            ar = role_by_admin.get(rid, ADMIN_ROLE) if rid is not None else ADMIN_ROLE
-            sender_role = "admin" if ar == ADMIN_ROLE else "teacher"
-        out.append(
-            {
-                "id": m.Id,
-                "sender": sender,
-                "senderRole": sender_role,
-                "body": m.Body,
-                "createdAt": m.CreatedAt.isoformat(sep=" ", timespec="seconds") if m.CreatedAt else "",
-            }
-        )
-    return jsonify(out)
-
-
-@eagle_api.route("/messages", methods=["POST"])
-@jwt_required()
-def post_message():
-    data = request.get_json() or {}
-    body = (data.get("body") or "").strip()
-    if not body:
-        return make_response({"message": "Message body is required."}, HTTPStatus.BAD_REQUEST)
-
-    if isinstance(current_user, StudentUsers):
-        team, err = _student_eagle_team()
-        if err:
-            return err
-        msg = EagleTeamMessages(
-            TeamId=int(team.Id),
-            SenderType="student",
-            StudentId=int(current_user.Id),
-            AdminId=None,
-            Body=body,
-        )
-        db.session.add(msg)
-        db.session.commit()
-        return jsonify({"id": msg.Id, "ok": True}), HTTPStatus.CREATED
-
-    if isinstance(current_user, AdminUsers):
-        role = _staff_role()
-        if role != ADMIN_ROLE:
-            return make_response(
-                {"message": "Teachers can view Eagle chat threads but cannot send messages."},
-                HTTPStatus.FORBIDDEN,
-            )
-
-        team_id = data.get("team_id")
-        try:
-            tid = int(team_id)
-        except (TypeError, ValueError):
-            return make_response({"message": "team_id is required"}, HTTPStatus.BAD_REQUEST)
-        team = Teams.query.filter_by(Id=tid, Division="Eagle").first()
-        if not team:
-            return make_response({"message": "Eagle team not found"}, HTTPStatus.NOT_FOUND)
-
-        msg = EagleTeamMessages(
-            TeamId=tid,
-            SenderType="admin",
-            StudentId=None,
-            AdminId=int(current_user.Id),
-            Body=body,
-        )
-        db.session.add(msg)
-        db.session.commit()
-        return jsonify({"id": msg.Id, "ok": True}), HTTPStatus.CREATED
-
-    return make_response({"message": "Unauthorized"}, HTTPStatus.FORBIDDEN)
+    if err := _materials_error():
+        return err
+    if not os.path.isfile(INSTRUCTIONS_PDF):
+        return _deny("Eagle instructions PDF is not available on the server.", HTTPStatus.NOT_FOUND)
+    return send_file(INSTRUCTIONS_PDF, mimetype="application/pdf", as_attachment=True,
+                     download_name="Eagle-Division-2026.pdf")
 
 
 @eagle_api.route("/problem", methods=["GET"])
 @jwt_required()
 @inject
 def eagle_problem(project_repo: ProjectRepository = Provide[Container.project_repo]):
-    if isinstance(current_user, StudentUsers):
-        _, err = _student_eagle_team()
-        if err:
-            return err
-        if not can_student_access_competition_materials():
-            return make_response(
-                {
-                    "message": "Problem materials are only available during the competition and after submissions unlock."
-                },
-                HTTPStatus.FORBIDDEN,
-            )
-    elif not _is_global_admin():
-        return make_response({"message": "Unauthorized"}, HTTPStatus.FORBIDDEN)
+    if err := _materials_error():
+        return err
+    result = {"projectId": None, "name": None, "preview": None, "previewKind": "none", "filename": None, "hint": None}
+    if project := project_repo.get_eagle_competition_project():
+        preview = project_repo.get_assignment_preview_for_ui(int(project.Id))
+        result.update(projectId=int(project.Id), name=project.Name, preview=preview.get("text"),
+                      previewKind=preview.get("kind"), filename=preview.get("filename"))
+    return jsonify(result)
 
-    proj = project_repo.get_eagle_competition_project()
-    if not proj:
-        return jsonify(
-            {
-                "projectId": None,
-                "name": None,
-                "preview": None,
-                "previewKind": "none",
-                "filename": None,
-                "hint": None,
-            }
-        )
 
-    pid = int(proj.Id)
-    preview = project_repo.get_assignment_preview_for_ui(pid)
-    return jsonify(
-        {
-            "projectId": pid,
-            "name": proj.Name,
-            "preview": preview.get("text"),
-            "previewKind": preview.get("kind"),
-            "filename": preview.get("filename"),
-            "hint": None,
-        }
-    )
+@eagle_api.route("/teams", methods=["GET"])
+@jwt_required()
+def list_eagle_teams():
+    teams = _visible_teams()
+    if teams is None:
+        return _deny("Admin access required")
+    return jsonify([{"id": t.Id, "name": t.Name, "teamNumber": t.TeamNumber, "schoolId": t.SchoolId} for t in teams])
+
+
+@eagle_api.route("/conversations", methods=["GET"])
+@jwt_required()
+def list_eagle_conversations():
+    teams = _visible_teams()
+    if teams is None:
+        return _deny()
+    out = []
+    for team in teams:
+        thread = EagleTeamMessages.query.filter_by(TeamId=team.Id)
+        last = thread.order_by(desc(EagleTeamMessages.CreatedAt), desc(EagleTeamMessages.Id)).first()
+        count = thread.count()
+        stage = "no_messages" if not count else "needs_admin_reply" if _role(last) == "student" else "waiting_for_requester"
+        out.append({
+            "teamId": int(team.Id), "teamName": str(team.Name or f"Team {team.Id}").strip(),
+            "teamNumber": int(team.TeamNumber or 0), "schoolId": int(team.SchoolId or 0),
+            "lastMessagePreview": str(last.Body or "").strip()[:140] if last else None,
+            "lastMessageAt": _when(last.CreatedAt) or None if last else None,
+            "lastSenderRole": _role(last) if last else None, "conversationStage": stage, "messageCount": count,
+        })
+    return jsonify(out)
+
+
+@eagle_api.route("/messages", methods=["GET"])
+@jwt_required()
+def get_messages():
+    actor = actor_of()
+    if actor == Actor.STUDENT:
+        team = _eagle_team(current_user.TeamId)
+        if not team:
+            return _deny(NOT_EAGLE)
+    elif actor in (Actor.SYSTEM_ADMIN, Actor.TEACHER):
+        if not (team_id := request.args.get("team_id", type=int)):
+            return _deny("team_id is required", HTTPStatus.BAD_REQUEST)
+        if not (team := _eagle_team(team_id)):
+            return _deny("Eagle team not found", HTTPStatus.NOT_FOUND)
+        if not can_view_eagle_chat(team):
+            return _deny()
+    else:
+        return _deny()
+    rows = EagleTeamMessages.query.filter_by(TeamId=team.Id).order_by(
+        asc(EagleTeamMessages.CreatedAt), asc(EagleTeamMessages.Id)).all()
+    return jsonify([{"id": m.Id, "sender": _role(m), "senderRole": _role(m), "body": m.Body,
+                     "createdAt": _when(m.CreatedAt)} for m in rows])
+
+
+@eagle_api.route("/messages", methods=["POST"])
+@jwt_required()
+def post_message():
+    data = request.get_json() or {}
+    if not (body := (data.get("body") or "").strip()):
+        return _deny("Message body is required.", HTTPStatus.BAD_REQUEST)
+    actor = actor_of()
+    if actor == Actor.STUDENT:
+        if not (team := _eagle_team(current_user.TeamId)):
+            return _deny(NOT_EAGLE)
+        message = EagleTeamMessages(TeamId=team.Id, SenderType="student", StudentId=current_user.Id, Body=body)
+    elif actor == Actor.TEACHER:
+        return _deny("Teachers can view Eagle chat threads but cannot send messages.")
+    elif actor == Actor.SYSTEM_ADMIN:
+        try:
+            team = _eagle_team(int(data.get("team_id")))
+        except (TypeError, ValueError):
+            return _deny("team_id is required", HTTPStatus.BAD_REQUEST)
+        if not team:
+            return _deny("Eagle team not found", HTTPStatus.NOT_FOUND)
+        message = EagleTeamMessages(TeamId=team.Id, SenderType="admin", AdminId=current_user.Id, Body=body)
+    else:
+        return _deny()
+    db.session.add(message)
+    db.session.commit()
+    return jsonify({"id": message.Id, "ok": True}), HTTPStatus.CREATED

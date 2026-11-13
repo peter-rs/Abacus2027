@@ -13,8 +13,6 @@ pytestmark = [
 INIT_SQL = Path(__file__).resolve().parents[2] / "init-db" / "init.sql"
 SCRATCH_DB = "abacus_schema_test"
 
-# Mismatches that already existed before Phase 2. New ones fail the test; when you
-# fix one, delete it from this set (the test tells you when it is safe to).
 KNOWN_DRIFT = {
     "AdminUsers.Firstname: nullable is True in models.py, False in init.sql",
     "AdminUsers.IsLocked: nullable is True in models.py, False in init.sql",
