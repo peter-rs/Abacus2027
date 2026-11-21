@@ -77,12 +77,22 @@ class AdminUsers(db.Model):
     Firstname = Column(String)
     Lastname = Column(String)
     Email = Column(String(256), unique=True, nullable=False)
-    SchoolId = Column(Integer, ForeignKey('Schools.Id'), nullable=False)
+    SchoolId = Column(Integer, ForeignKey('Schools.Id'), nullable=True)  # NULL for system or competition admins
     PasswordHash = Column(String(255))
     IsLocked = Column(Boolean, default=False)
-    Role = Column(Integer, nullable=False, default=0)
+    Role = Column(Integer, nullable=False, default=0)  # 0 teacher, 1 system admin, 2 competition admin
     Question1 = Column(String(255))
     Question2 = Column(String(255))
+
+
+
+class CompetitionAdminDivisions(db.Model):
+    """Which divisions a competition admin (AdminUsers.Role == 2) covers."""
+    __tablename__ = "CompetitionAdminDivisions"
+    Id = Column(Integer, primary_key=True, autoincrement=True)
+    AdminId = Column(Integer, ForeignKey('AdminUsers.Id', ondelete='CASCADE'), nullable=False)
+    Division = Column(String(5), nullable=False)  # 'Blue' | 'Gold' | 'Eagle' (case-sensitive in SQL)
+    __table_args__ = (UniqueConstraint('AdminId', 'Division', name='uq_admin_division'),)
 
 
 class StudentUsers(db.Model):

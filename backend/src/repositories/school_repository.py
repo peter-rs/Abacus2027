@@ -32,7 +32,7 @@ class SchoolRepository:
 
     def get_school_by_teacher_id(self, teacher_id: int) -> Optional[Schools]:
         admin = AdminUsers.query.filter(AdminUsers.Id == teacher_id).one_or_none()
-        if not admin:
+        if not admin or admin.SchoolId is None:   # system/competition admins have no school
             return None
         return self.get_school_by_id(int(admin.SchoolId))
 
@@ -47,7 +47,7 @@ class SchoolRepository:
         Gets the school row for an admin user (teacher) using AdminUsers.SchoolId.
         """
         admin = AdminUsers.query.filter(AdminUsers.Id == admin_id).one_or_none()
-        if not admin:
+        if not admin or admin.SchoolId is None:   # system/competition admins have no school
             return None
         return self.get_school_by_id(int(admin.SchoolId))
 

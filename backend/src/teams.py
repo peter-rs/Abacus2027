@@ -28,6 +28,7 @@ from src.constants import (
     is_teacher_submission_locked,
     get_minute_index,
 )
+from src.permissions import Actor, actors_required 
 from src.services.scoreboard_service import build_scoreboard_payload
 from src.extensions import cache
 from openpyxl import Workbook
@@ -154,6 +155,7 @@ def build_snapshot_response(scoreboard, status, transition_at=None):
 
 @team_api.route('/create', methods=['POST'])
 @jwt_required()
+@actors_required(Actor.TEACHER, Actor.SYSTEM_ADMIN)
 @inject
 def create_team(
     team_repo: TeamRepository = Provide[Container.team_repo],
@@ -162,7 +164,7 @@ def create_team(
 ):
     data = request.get_json()
 
-    school_id = int(getattr(current_user, "SchoolId", 0))
+    school_id = int(getattr(current_user, "SchoolId", None) or 0)
     role = int(getattr(current_user, "Role", 0) or 0)
     requested_school_id = data.get("school_id")
 
@@ -228,7 +230,7 @@ def update_team(
 
     data = request.get_json()
     team_id = int(data.get("team_id") or 0)
-    school_id = int(getattr(current_user, "SchoolId", 0))
+    school_id = int(getattr(current_user, "SchoolId", None) or 0)
     requested_school_id = data.get("school_id")
 
     if team_id <= 0:
@@ -312,7 +314,7 @@ def delete_team(
     
     data = request.get_json()
     team_id = int(data.get("team_id") or 0)
-    school_id = int(getattr(current_user, "SchoolId", 0))
+    school_id = int(getattr(current_user, "SchoolId", None) or 0)
     requested_school_id = data.get("school_id")
 
     if team_id <= 0:
@@ -359,7 +361,7 @@ def get_teams_by_school(
     if not isinstance(current_user, AdminUsers):
         return make_response({'message': 'Unauthorized'}, HTTPStatus.FORBIDDEN)
 
-    school_id = int(getattr(current_user, "SchoolId", 0))
+    school_id = int(getattr(current_user, "SchoolId", None) or 0)
     requested_school_id = request.args.get("school_id", type=int)
 
     if requested_school_id:
@@ -399,7 +401,7 @@ def get_teams_by_school_detailed(
     if not isinstance(current_user, AdminUsers):
         return make_response({'message': 'Unauthorized'}, HTTPStatus.FORBIDDEN)
 
-    school_id = int(getattr(current_user, "SchoolId", 0))
+    school_id = int(getattr(current_user, "SchoolId", None) or 0)
     requested_school_id = request.args.get("school_id", type=int)
 
     if requested_school_id:
@@ -554,7 +556,7 @@ def get_team_submission_summary(
         if not team_id or team_id <= 0:
             return make_response({'message': 'team_id is required'}, HTTPStatus.BAD_REQUEST)
 
-        school_id = int(getattr(current_user, "SchoolId", 0))
+        school_id = int(getattr(current_user, "SchoolId", None) or 0)
         requested_school_id = request.args.get("school_id", type=int)
 
         if requested_school_id:
